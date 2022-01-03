@@ -1,0 +1,6 @@
+# Ignore folders
+__pycache__
+.ipynb_checkpoints
+saved_models
+videos
+wandb
