@@ -50,6 +50,7 @@ DEFAULT_USE_H_MEAN = True
 DEFAULT_USE_ENTROPY = True
 DEFAULT_NORMALIZE_Q_DIST = False #True
 DEFAULT_TARGET_UPDATE_RATE = 1e-3
+DEFAULT_STATE_DEPENDENT_TEMPERATURE = True
 
 
 if __name__ == "__main__":    
@@ -92,6 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--restrain_pi_update", default=DEFAULT_RESTRAIN_POLICY_UPDATE, help="Penalize policy changes that are too large, default=" + str(DEFAULT_RESTRAIN_POLICY_UPDATE))
     parser.add_argument("--clip_value", default=DEFAULT_CLIP_VALUE, help="Clip value for optimizer")
     parser.add_argument("--n_agents", default=DEFAULT_N_AGENTS, type=int, help="Number of agents")
+    parser.add_argument("--state_dependent_temp", default=DEFAULT_STATE_DEPENDENT_TEMPERATURE, help="Wether the entropy temperature should be state-dependent or not")
     parser.add_argument("--use_H_mean", default=DEFAULT_USE_H_MEAN, help="Use or not H mean in SAC's critic loss")
     parser.add_argument("--use_entropy", default=DEFAULT_USE_ENTROPY, help="Use SAC with or without entropy")
     parser.add_argument("--normalize_q_dist", default=DEFAULT_NORMALIZE_Q_DIST, help="Normalize q target distribution")
@@ -134,6 +136,7 @@ if __name__ == "__main__":
         'normalize_q_error': args.normalize_q_error,
         'normalize_q_dist': args.normalize_q_dist,
         'target_update_rate': args.target_update_rate,
+        'state_dependent_temperature': args.state_dependent_temp,
     }
 
     store_video = args.eval

@@ -91,18 +91,19 @@ def temperature_search(
             p(a|s) = exp(q(s,a)/temperature(s))/Z(s) 
     
     have the desired entropy, with a margin of error given the
-    tolerance.
+    tolerance. It is supposed that the last dimension correspond
+    to the possible discrete actions.
     '''
-    if len(q_values.shape) != 2:
-        raise RuntimeError("Q-values should be matrices, i.e., 2d tensors")
+    # if len(q_values.shape) != 2:
+    #     raise RuntimeError("Q-values should be matrices, i.e., 2d tensors")
 
-    n_actions = q_values.shape[1]
+    n_actions = q_values.shape[-1]
 
     log_alpha_plus = torch.log(
-        c_plus * q_values.abs().sum(1, keepdim=True) + 1e-6)
+        c_plus * q_values.abs().sum(-1, keepdim=True) + 1e-6)
     
     log_alpha_minus = torch.log(
-        c_minus * q_values.abs().min(1, keepdim=True)[0] + 1e-6)
+        c_minus * q_values.abs().min(-1, keepdim=True)[0] + 1e-6)
 
     worst_entropy_difference = np.log(n_actions)
     n_iter = 0
@@ -113,12 +114,12 @@ def temperature_search(
         
         # Calculate entropies
         q_normalized = q_values / alpha
-        q = q_normalized - q_normalized.max(1, keepdim=True)[0]
+        q = q_normalized - q_normalized.max(-1, keepdim=True)[0]
         distribution_ = torch.exp(q)+1e-10
-        distribution_ /= distribution_.sum(1, keepdim=True)
+        distribution_ /= distribution_.sum(-1, keepdim=True)
         entropy = -(
             distribution_ * torch.log(distribution_)
-        ).sum(1, keepdim=True)
+        ).sum(-1, keepdim=True)
 
         # Update temperature estimates depending on whether the entropy
         # difference is positive or negative

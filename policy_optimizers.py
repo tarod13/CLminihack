@@ -139,7 +139,8 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                 clip_q_error=False, clip_value_q_error=None,
                 use_H_mean=True, use_entropy=True,
                 normalize_q_error=False, normalize_q_dist=False,
-                target_update_rate=5e-3
+                target_update_rate=5e-3, 
+                state_dependent_temperature=False
                 ):
         super().__init__()
         self.learn_alpha = learn_alpha
@@ -162,6 +163,7 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         self.normalize_q_dist = normalize_q_dist
         self.use_H_mean = use_H_mean
         self.H_mean = None
+        self.state_dependent_temperature = state_dependent_temperature
     
     def optimize(self, agents, database, n_step_td=1): 
         if database.__len__() < self.batch_size:
@@ -194,11 +196,8 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         actor_critic = agent.second_level_architecture
 
         # Calculate q-values and action likelihoods
-        q, next_q, next_PA_s, next_log_PA_s, _ = \
+        q, next_q, next_PA_s, next_log_PA_s, log_alpha_nostate = \
             actor_critic.evaluate_critic(pixels, next_pixels)
-
-        # alpha = log_alpha.exp().item()
-        log
 
         # Calculate entropy of the action distributions
         HA_s = -(next_PA_s * next_log_PA_s).sum(1, keepdim=True)
@@ -217,6 +216,15 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
             next_q_target = torch.min(next_q[0], next_q[1])
         else:
             next_q_target = next_q.min(1)[0]
+
+        # Set temperature
+        if self.state_dependent_temperature:
+            desired_entropy = self.entropy_target * 0.8
+            with torch.no_grad():
+                log_alpha_state = temperature_search(next_q_target.detach(), desired_entropy)
+                alpha = torch.exp(log_alpha_state)
+        else:
+            alpha = log_alpha_nostate.exp().item()
 
         # Calculate next v-value, exactly, with the next action distribution
         next_v_target = (next_PA_s * (
@@ -263,7 +271,7 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
             else:
                 q_loss = ((q_A - q_target.unsqueeze(1).detach())/max_q_dif).pow(2).mean()
 
-        # Create critic optimizer and optimize model
+        # Optimize critic
         actor_critic.q.optimizer.zero_grad()
         q_loss.backward()
         clip_grad_norm_(actor_critic.q.parameters(), self.clip_value)
@@ -285,11 +293,16 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         if self.normalize_q_dist:
             q_dist = (q_dist - q_dist.mean(1, keepdim=True)) / (q_dist.std(1, keepdim=True) + 1e-6)
 
+        # Calculate state-dependent temperature for current state
+        if self.state_dependent_temperature:
+            with torch.no_grad():
+                log_alpha_state = temperature_search(q_dist.detach(), desired_entropy)
+                alpha = torch.exp(log_alpha_state) 
+
         # Calculate normalizing factors for target softmax distributions
         z = torch.logsumexp(q_dist/(alpha+1e-10), 1, keepdim=True)
 
         # Calculate the target log-softmax distribution
-
         log_softmax_target_last = q_dist/(alpha+1e-10) - z
         log_softmax_target += (log_softmax_target_last - log_softmax_target)/n_agents
         
@@ -298,24 +311,31 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         difference_ratio = (log_PA_s - log_softmax_target.detach())
         actor_loss = (PA_s * difference_ratio).sum(1, keepdim=True).mean()
 
-        # Create optimizer and optimize model
+        # Optimize actor
         actor_critic.actor.optimizer.zero_grad()
         actor_loss.backward()
         clip_grad_norm_(actor_critic.actor.parameters(), self.clip_value)
         actor_critic.actor.optimizer.step()
 
-        # Calculate loss for temperature parameter alpha 
-        scaled_min_entropy = self.entropy_target * self.epsilon
-        alpha_error = (HA_s_mean - scaled_min_entropy).mean()
-        alpha_loss = log_alpha * alpha_error.detach()
+        if self.state_dependent_temperature:
+            alpha_error = (HA_s_mean - desired_entropy)**2
+            alpha_loss = ((alpha_error.mean())**0.5).detach()
+            mean_alpha = alpha.mean().item()
+        else:
+            # Calculate loss for temperature parameter alpha 
+            scaled_min_entropy = self.entropy_target * self.epsilon
+            alpha_error = (HA_s_mean - scaled_min_entropy).mean()
+            alpha_loss = log_alpha_nostate * alpha_error.detach()
 
-        # Optimize temperature (if it is learnable)
-        if self.learn_alpha:
-            # Create optimizer and optimize model
-            actor_critic.alpha_optimizer.zero_grad()
-            alpha_loss.backward()
-            clip_grad_norm_([actor_critic.log_alpha], self.clip_value)
-            actor_critic.alpha_optimizer.step()        
+            # Optimize temperature (if it is learnable)
+            if self.learn_alpha:
+                # Create optimizer and optimize model
+                actor_critic.alpha_optimizer.zero_grad()
+                alpha_loss.backward()
+                clip_grad_norm_([actor_critic.log_alpha], self.clip_value)
+                actor_critic.alpha_optimizer.step()       
+
+            mean_alpha = alpha 
 
         # Update targets of actor-critic and temperature param.
         actor_critic.update(self.target_update_rate)
@@ -329,7 +349,7 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                     'actor_loss': actor_loss.item(),
                     'alpha_loss': alpha_loss.item(),
                     'SAC_epsilon': self.epsilon,
-                    'alpha': alpha,
+                    'alpha': mean_alpha,
                     'base_entropy': self.H_mean,
                     }
 
