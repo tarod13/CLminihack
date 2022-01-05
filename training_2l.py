@@ -52,7 +52,8 @@ DEFAULT_NORMALIZE_Q_DIST = False #True
 DEFAULT_TARGET_UPDATE_RATE = 1e-3
 DEFAULT_STATE_DEPENDENT_TEMPERATURE = True
 DEFAULT_ACTOR_LOSS = 'jeffreys'
-DEFAULT_C_MINUS_TEMP_SEARCH = 1e-4
+DEFAULT_C_MINUS_TEMP_SEARCH = 1e-5
+DEFAULT_RND_OUT_DIM = 1024
 
 
 if __name__ == "__main__":    
@@ -102,6 +103,7 @@ if __name__ == "__main__":
     parser.add_argument("--target_update_rate", default=DEFAULT_TARGET_UPDATE_RATE, help="Update rate for target q networks")
     parser.add_argument("--actor_loss", default=DEFAULT_ACTOR_LOSS, help="Function used to train the actor")
     parser.add_argument("--c_minus_temp_search", default=DEFAULT_C_MINUS_TEMP_SEARCH, help="Coefficient use to initialize lower bounds in temperature search")
+    parser.add_argument("--rnd_out_dim", default=DEFAULT_RND_OUT_DIM, help="Dimension of RND networks' output")
     parser.add_argument("--vision_latent_dim", default=DEFAULT_VISION_LATENT_DIM, help="Dimensionality of feature vector added to inner state, default=" + 
         str(DEFAULT_VISION_LATENT_DIM))
     args = parser.parse_args()
@@ -169,7 +171,8 @@ if __name__ == "__main__":
         n_actions=env.action_space.n,
         noisy=noisy, n_heads=n_heads, init_log_alpha=args.init_log_alpha, 
         latent_dim=args.vision_latent_dim, parallel=args.parallel_q_nets,
-        lr=args.lr, lr_alpha=args.lr_alpha, lr_actor=args.lr_actor
+        lr=args.lr, lr_alpha=args.lr_alpha, lr_actor=args.lr_actor,
+        rnd_out_dim=args.rnd_out_dim
         )
     
     if args.load_id is not None:
