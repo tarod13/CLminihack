@@ -54,6 +54,8 @@ DEFAULT_STATE_DEPENDENT_TEMPERATURE = True
 DEFAULT_ACTOR_LOSS = 'jeffreys'
 DEFAULT_C_MINUS_TEMP_SEARCH = 1e-5
 DEFAULT_RND_OUT_DIM = 1024
+DEFAULT_LOG_NOVELTY_MIN = -10
+DEFAULT_LOG_NOVELTY_MAX = -4
 
 
 if __name__ == "__main__":    
@@ -104,6 +106,8 @@ if __name__ == "__main__":
     parser.add_argument("--actor_loss", default=DEFAULT_ACTOR_LOSS, help="Function used to train the actor")
     parser.add_argument("--c_minus_temp_search", default=DEFAULT_C_MINUS_TEMP_SEARCH, help="Coefficient use to initialize lower bounds in temperature search")
     parser.add_argument("--rnd_out_dim", default=DEFAULT_RND_OUT_DIM, help="Dimension of RND networks' output")
+    parser.add_argument("--log_novelty_min", default=DEFAULT_LOG_NOVELTY_MIN, help="Lower bound for log novelty when converting to desired entropy")
+    parser.add_argument("--log_novelty_max", default=DEFAULT_LOG_NOVELTY_MAX, help="Upper bound for log novelty when converting to desired entropy")
     parser.add_argument("--vision_latent_dim", default=DEFAULT_VISION_LATENT_DIM, help="Dimensionality of feature vector added to inner state, default=" + 
         str(DEFAULT_VISION_LATENT_DIM))
     args = parser.parse_args()
@@ -144,7 +148,9 @@ if __name__ == "__main__":
         'target_update_rate': args.target_update_rate,
         'state_dependent_temperature': args.state_dependent_temp,
         'actor_loss_function': args.actor_loss,
-        'c_minus_temp_search': args.c_minus_temp_search
+        'c_minus_temp_search': args.c_minus_temp_search,
+        'log_novelty_min': args.log_novelty_min,
+        'log_novelty_max': args.log_novelty_max,
     }
 
     store_video = args.eval

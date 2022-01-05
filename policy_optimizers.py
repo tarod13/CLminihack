@@ -142,7 +142,9 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                 target_update_rate=5e-3, 
                 state_dependent_temperature=False,
                 actor_loss_function='kl',
-                c_minus_temp_search = 1e-2
+                c_minus_temp_search = 1e-2,
+                log_novelty_min = -10,
+                log_novelty_max = -4
                 ):
         super().__init__()
         self.learn_alpha = learn_alpha
@@ -168,6 +170,8 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         self.state_dependent_temperature = state_dependent_temperature
         self.actor_loss_function = actor_loss_function
         self.c_minus_temp_search = c_minus_temp_search
+        self.log_novelty_min = log_novelty_min
+        self.log_novelty_max = log_novelty_max
     
     def optimize(self, agents, database, n_step_td=1): 
         if database.__len__() < self.batch_size:
@@ -228,7 +232,14 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
 
         # Set temperature
         if self.state_dependent_temperature:
-            desired_entropy = self.entropy_target * 0.8
+            desired_entropy = torch.exp(
+                (log_novelty.clamp(
+                    self.log_novelty_min, 
+                    self.log_novelty_max
+                    ) 
+                - self.log_novelty_max
+                ) / (np.abs(self.log_novelty_max - self.log_novelty_min)+1e-6)
+            )
             with torch.no_grad():
                 log_alpha_state, n_iter = temperature_search(
                     next_q_target.detach(), desired_entropy, 
@@ -308,6 +319,15 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
 
         # Calculate state-dependent temperature for current state
         if self.state_dependent_temperature:
+            log_novelty_state = agent.calc_novelty(pixels)[0]
+            desired_entropy = torch.exp(
+                (log_novelty_state.clamp(
+                    self.log_novelty_min, 
+                    self.log_novelty_max
+                    ) 
+                - self.log_novelty_max
+                ) / (np.abs(self.log_novelty_max - self.log_novelty_min)+1e-6)
+            )
             with torch.no_grad():
                 log_alpha_state, n_iter = temperature_search(
                     q_dist.detach(), desired_entropy, 
