@@ -141,4 +141,4 @@ def temperature_search(
                 f'Worst entropy delta: {worst_entropy_difference:.3f}'
             )
     
-    return 0.5 * (log_alpha_plus + log_alpha_minus)
+    return 0.5 * (log_alpha_plus + log_alpha_minus), n_iter

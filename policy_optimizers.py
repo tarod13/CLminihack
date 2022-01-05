@@ -140,7 +140,9 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                 use_H_mean=True, use_entropy=True,
                 normalize_q_error=False, normalize_q_dist=False,
                 target_update_rate=5e-3, 
-                state_dependent_temperature=False
+                state_dependent_temperature=False,
+                actor_loss_function='kl',
+                c_minus_temp_search = 1e-2
                 ):
         super().__init__()
         self.learn_alpha = learn_alpha
@@ -164,6 +166,8 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         self.use_H_mean = use_H_mean
         self.H_mean = None
         self.state_dependent_temperature = state_dependent_temperature
+        self.actor_loss_function = actor_loss_function
+        self.c_minus_temp_search = c_minus_temp_search
     
     def optimize(self, agents, database, n_step_td=1): 
         if database.__len__() < self.batch_size:
@@ -204,6 +208,10 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         HA_s_mean_last = HA_s.detach().mean()
         HA_s_mean += (HA_s_mean_last - HA_s_mean)/n_agents
 
+        # Calculate novelty
+        log_novelty, novelty_error, _ = agent.calc_novelty(
+            next_pixels)
+
         # Update mean entropy
         if self.H_mean is None:
             self.H_mean = HA_s_mean.item()
@@ -221,10 +229,14 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         if self.state_dependent_temperature:
             desired_entropy = self.entropy_target * 0.8
             with torch.no_grad():
-                log_alpha_state = temperature_search(next_q_target.detach(), desired_entropy)
+                log_alpha_state, n_iter = temperature_search(
+                    next_q_target.detach(), desired_entropy, 
+                    c_minus=self.c_minus_temp_search
+                    )
                 alpha = torch.exp(log_alpha_state)
         else:
             alpha = log_alpha_nostate.exp().item()
+            n_iter = 0
 
         # Calculate next v-value, exactly, with the next action distribution
         next_v_target = (next_PA_s * (
@@ -296,7 +308,10 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         # Calculate state-dependent temperature for current state
         if self.state_dependent_temperature:
             with torch.no_grad():
-                log_alpha_state = temperature_search(q_dist.detach(), desired_entropy)
+                log_alpha_state, n_iter = temperature_search(
+                    q_dist.detach(), desired_entropy, 
+                    c_minus=self.c_minus_temp_search
+                    )
                 alpha = torch.exp(log_alpha_state) 
 
         # Calculate normalizing factors for target softmax distributions
@@ -304,12 +319,31 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
 
         # Calculate the target log-softmax distribution
         log_softmax_target_last = q_dist/(alpha+1e-10) - z
-        log_softmax_target += (log_softmax_target_last - log_softmax_target)/n_agents
+        log_softmax_target += (
+            (log_softmax_target_last - log_softmax_target) 
+            / n_agents
+            )
+        softmax_target = torch.exp(log_softmax_target)
+        entropy_target = -(
+            softmax_target * log_softmax_target
+            ).sum(1, keepdim=True).mean()
         
         # Calculate actor losses as the KL divergence between action 
         # distributions and softmax target distributions
         difference_ratio = (log_PA_s - log_softmax_target.detach())
-        actor_loss = (PA_s * difference_ratio).sum(1, keepdim=True).mean()
+        kl_div_PA_s_target = (PA_s * difference_ratio).sum(1, keepdim=True).mean()
+
+        if self.actor_loss_function == 'kl':
+            actor_loss = kl_div_PA_s_target
+        elif self.actor_loss_function == 'jeffreys':
+            kl_div_target_PA_s = -(
+                softmax_target.detach() * difference_ratio
+                ).sum(1, keepdim=True).mean()
+            actor_loss = kl_div_PA_s_target + kl_div_target_PA_s
+        else:
+            raise ValueError(
+                'Invalid actor loss function. ' 
+                + 'Should be kl or jeffreys divergence.')
 
         # Optimize actor
         actor_critic.actor.optimizer.zero_grad()
@@ -351,6 +385,12 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                     'SAC_epsilon': self.epsilon,
                     'alpha': mean_alpha,
                     'base_entropy': self.H_mean,
+                    'target_entropy': entropy_target.item(),
+                    'n_iter_temp_search': n_iter,
+                    'log_novelty_mean': log_novelty.mean().item(),
+                    'log_novelty_std': log_novelty.std().item(),
+                    'novelty_error_mean': novelty_error.mean().item(),
+                    'novelty_error_std': novelty_error.std().item(),
                     }
 
         return metrics

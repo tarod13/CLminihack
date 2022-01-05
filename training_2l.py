@@ -51,6 +51,8 @@ DEFAULT_USE_ENTROPY = True
 DEFAULT_NORMALIZE_Q_DIST = False #True
 DEFAULT_TARGET_UPDATE_RATE = 1e-3
 DEFAULT_STATE_DEPENDENT_TEMPERATURE = True
+DEFAULT_ACTOR_LOSS = 'jeffreys'
+DEFAULT_C_MINUS_TEMP_SEARCH = 1e-4
 
 
 if __name__ == "__main__":    
@@ -98,6 +100,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_entropy", default=DEFAULT_USE_ENTROPY, help="Use SAC with or without entropy")
     parser.add_argument("--normalize_q_dist", default=DEFAULT_NORMALIZE_Q_DIST, help="Normalize q target distribution")
     parser.add_argument("--target_update_rate", default=DEFAULT_TARGET_UPDATE_RATE, help="Update rate for target q networks")
+    parser.add_argument("--actor_loss", default=DEFAULT_ACTOR_LOSS, help="Function used to train the actor")
+    parser.add_argument("--c_minus_temp_search", default=DEFAULT_C_MINUS_TEMP_SEARCH, help="Coefficient use to initialize lower bounds in temperature search")
     parser.add_argument("--vision_latent_dim", default=DEFAULT_VISION_LATENT_DIM, help="Dimensionality of feature vector added to inner state, default=" + 
         str(DEFAULT_VISION_LATENT_DIM))
     args = parser.parse_args()
@@ -137,6 +141,8 @@ if __name__ == "__main__":
         'normalize_q_dist': args.normalize_q_dist,
         'target_update_rate': args.target_update_rate,
         'state_dependent_temperature': args.state_dependent_temp,
+        'actor_loss_function': args.actor_loss,
+        'c_minus_temp_search': args.c_minus_temp_search
     }
 
     store_video = args.eval

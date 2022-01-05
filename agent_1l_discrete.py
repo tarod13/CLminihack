@@ -3,8 +3,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from policy_nets import s_Net
 from actor_critic_nets import discrete_vision_actor_critic_Net
+from rnd import RND_Module
 from net_utils import freeze
 from utils import numpy2torch as np2torch
 from utils import time_stamp
@@ -20,17 +20,26 @@ def create_second_level_agent(
         init_log_alpha, parallel, lr, lr_alpha, lr_actor
     )
 
+    rnd_module = RND_Module()
+
     second_level_agent = Second_Level_Agent(
-        n_actions, second_level_architecture, noop_action
+        n_actions, second_level_architecture, rnd_module, noop_action
     ).to(device)
     return second_level_agent
 
 
 class Second_Level_Agent(nn.Module):
-    def __init__(self, n_actions, second_level_architecture, noop_action):  
+    def __init__(
+        self, 
+        n_actions: int, 
+        second_level_architecture: discrete_vision_actor_critic_Net, 
+        rnd_module: RND_Module, 
+        noop_action: bool
+        ):  
         super().__init__()    
         
         self.second_level_architecture = second_level_architecture
+        self.rnd_module = rnd_module
         
         self._n_actions = n_actions + int(noop_action)
         self._noop = noop_action
@@ -38,6 +47,9 @@ class Second_Level_Agent(nn.Module):
     
     def forward(self, states):
         pass 
+
+    def calc_novelty(self, pixels):
+        return self.rnd_module.calc_novelty(pixels)
     
     def sample_action(self, state, explore=True):
         pixel = self.observe_second_level_state(state)
