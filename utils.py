@@ -100,10 +100,10 @@ def temperature_search(
     n_actions = q_values.shape[-1]
 
     log_alpha_plus = torch.log(
-        c_plus * q_values.abs().sum(-1, keepdim=True) + 1e-6)
+        c_plus * q_values.abs().sum(-1, keepdim=True) + 1e-10)
     
     log_alpha_minus = torch.log(
-        c_minus * q_values.abs().min(-1, keepdim=True)[0] + 1e-6)
+        c_minus * q_values.abs().min(-1, keepdim=True)[0] + 1e-10)
 
     worst_entropy_difference = np.log(n_actions)
     n_iter = 0

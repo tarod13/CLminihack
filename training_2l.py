@@ -6,7 +6,7 @@ import minihack
 from agent_1l_discrete import create_second_level_agent
 from buffers import ExperienceBuffer
 from trainers import Second_Level_Trainer as Trainer
-from wrappers import TransposeChannelWrapper
+from wrappers import MinihackPixelWrapper
 
 import wandb
 import argparse
@@ -14,8 +14,8 @@ import os
 import collections
 
 DEFAULT_ENV_NAME = 'MiniHack-River-v0'
-DEFAULT_N_STEPS_IN_SECOND_LEVEL_EPISODE = 350
-DEFAULT_BUFFER_SIZE = 250000
+DEFAULT_N_STEPS_IN_SECOND_LEVEL_EPISODE = 700
+DEFAULT_BUFFER_SIZE = 500000
 DEFAULT_N_EPISODES = 3000
 DEFAULT_ID = '2001-01-15_19-10-56'
 DEFAULT_CLIP_Q_ERROR = False
@@ -38,11 +38,11 @@ DEFAULT_INITIALIZATION = False
 DEFAULT_INITIAL_BUFFER_SIZE = 500
 DEFAULT_NOISY_ACTOR_CRITIC = False
 DEFAULT_SAVE_STEP_EACH = 1
-DEFAULT_TRAIN_EACH = 8
+DEFAULT_TRAIN_EACH = 4
 DEFAULT_N_STEP_TD = 1
 DEFAULT_PARALLEL_Q_NETS = True
 DEFAULT_N_HEADS = 2
-DEFAULT_VISION_LATENT_DIM = 64
+DEFAULT_VISION_LATENT_DIM = 128
 DEFAULT_N_AGENTS = 1
 DEFAULT_NORMALIZE_Q_ERROR = True
 DEFAULT_RESTRAIN_POLICY_UPDATE = False
@@ -52,11 +52,12 @@ DEFAULT_NORMALIZE_Q_DIST = False #True
 DEFAULT_TARGET_UPDATE_RATE = 1e-3
 DEFAULT_STATE_DEPENDENT_TEMPERATURE = True
 DEFAULT_ACTOR_LOSS = 'jeffreys'
-DEFAULT_C_MINUS_TEMP_SEARCH = 1e-5
+DEFAULT_C_MINUS_TEMP_SEARCH = 1e-6
 DEFAULT_RND_OUT_DIM = 1024
 DEFAULT_LOG_NOVELTY_MIN = -10
-DEFAULT_LOG_NOVELTY_MAX = -4
-
+DEFAULT_LOG_NOVELTY_MAX = -6
+DEFAULT_EVAL_GREEDY = True
+DEFAULT_GRAYSCALE = True
 
 if __name__ == "__main__":    
     parser = argparse.ArgumentParser()
@@ -87,7 +88,7 @@ if __name__ == "__main__":
     parser.add_argument("--init_buffer_size", default=DEFAULT_INITIAL_BUFFER_SIZE, help="Minimum replay buffer size to start learning, default=" + str(DEFAULT_INITIAL_BUFFER_SIZE))
     parser.add_argument("--load_id", default=None, help="Model ID to load, default=None")
     parser.add_argument("--load_best", action="store_true", help="If flag is used the best model will be loaded (if ID is provided)")
-    parser.add_argument("--eval_greedy", action="store_true", help="If flag is used the policy used when evaluating is greedy")
+    parser.add_argument("--eval_greedy", default=DEFAULT_EVAL_GREEDY, help="If true, then the evaluation policy is greedy")
     parser.add_argument("--noisy_ac", default=DEFAULT_NOISY_ACTOR_CRITIC, help="Use noisy layers in the actor-critic module")
     parser.add_argument("--save_step_each", default=DEFAULT_SAVE_STEP_EACH, help="Number of steps to store 1 step in the replay buffer, default=" + str(DEFAULT_SAVE_STEP_EACH))
     parser.add_argument("--train_each", default=DEFAULT_TRAIN_EACH, help="Number of steps ellapsed to train once, default=" + str(DEFAULT_TRAIN_EACH))
@@ -108,6 +109,7 @@ if __name__ == "__main__":
     parser.add_argument("--rnd_out_dim", default=DEFAULT_RND_OUT_DIM, help="Dimension of RND networks' output")
     parser.add_argument("--log_novelty_min", default=DEFAULT_LOG_NOVELTY_MIN, help="Lower bound for log novelty when converting to desired entropy")
     parser.add_argument("--log_novelty_max", default=DEFAULT_LOG_NOVELTY_MAX, help="Upper bound for log novelty when converting to desired entropy")
+    parser.add_argument("--grayscale", default=DEFAULT_GRAYSCALE, help="Use grayscale for observations")
     parser.add_argument("--vision_latent_dim", default=DEFAULT_VISION_LATENT_DIM, help="Dimensionality of feature vector added to inner state, default=" + 
         str(DEFAULT_VISION_LATENT_DIM))
     args = parser.parse_args()
@@ -165,17 +167,21 @@ if __name__ == "__main__":
         # wandb.config.healthy_reward = DEFAULT_HEALTHY_REWARD 
 
 
-    env = TransposeChannelWrapper(
+    env = MinihackPixelWrapper(
         gym.make(
             env_name,
             observation_keys=("pixel",),
             max_episode_steps=n_steps_in_second_level_episode
-        )
+        ),
+        use_grayscale=args.grayscale
     )
     
+    n_actions = env.action_space.n
+    optimizer_kwargs['n_actions'] = n_actions
+
     agent = create_second_level_agent(
-        n_actions=env.action_space.n,
-        noisy=noisy, n_heads=n_heads, init_log_alpha=args.init_log_alpha, 
+        n_actions=n_actions, noisy=noisy, n_heads=n_heads, 
+        init_log_alpha=args.init_log_alpha, 
         latent_dim=args.vision_latent_dim, parallel=args.parallel_q_nets,
         lr=args.lr, lr_alpha=args.lr_alpha, lr_actor=args.lr_actor,
         rnd_out_dim=args.rnd_out_dim

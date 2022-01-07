@@ -19,22 +19,29 @@ class AntPixelWrapper(gym.ObservationWrapper):
         return state
 
 
-class TransposeChannelWrapper(gym.ObservationWrapper):
-    def observation(self, obs):
-        return TransposeChannelWrapper.transpose(obs)
+class MinihackPixelWrapper(gym.ObservationWrapper):
+    def __init__(self, env: gym.Env, use_grayscale: bool = False) -> None:
+        super().__init__(env)
+        self.use_grayscale = use_grayscale
 
-    @staticmethod
-    def transpose(obs):
+    def observation(self, obs):
+        return self.transforms(obs)
+
+    def transforms(self, obs):
         state = collections.OrderedDict()
         pixel = obs['pixel']
         state['original'] = pixel
         
-        scale = 0.25        
+        scale = 1/8       
         width = int(pixel.shape[1] * scale)
         height = int(pixel.shape[0] * scale)
         dims = (width, height)
 
+        if self.use_grayscale:
+            pixel = cv2.cvtColor(pixel, cv2.COLOR_RGB2GRAY)
         pixel = cv2.resize(pixel, dims, interpolation=cv2.INTER_AREA)
+        if self.use_grayscale:
+            pixel = np.expand_dims(pixel, axis=2)
         pixel = np.swapaxes(pixel, 1, 2)
         pixel = np.swapaxes(pixel, 0, 1)        
         state['pixel'] = pixel

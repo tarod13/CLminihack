@@ -42,7 +42,7 @@ device   = torch.device("cuda" if use_cuda else "cpu")
 
 
 class vision_Net(nn.Module):
-    def __init__(self, latent_dim=256, input_channels=3, height=84, width=316, noisy=True):
+    def __init__(self, latent_dim=256, input_channels=1, height=42, width=158, noisy=True):
         super().__init__()
 
         self.conv = nn.Sequential(

@@ -239,7 +239,7 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                     ) 
                 - self.log_novelty_max
                 ) / (np.abs(self.log_novelty_max - self.log_novelty_min)+1e-6)
-            )
+            ) * self.entropy_target * 0.995
             with torch.no_grad():
                 log_alpha_state, n_iter = temperature_search(
                     next_q_target.detach(), desired_entropy, 
@@ -327,7 +327,7 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                     ) 
                 - self.log_novelty_max
                 ) / (np.abs(self.log_novelty_max - self.log_novelty_min)+1e-6)
-            )
+            ) * self.entropy_target * 0.995
             with torch.no_grad():
                 log_alpha_state, n_iter = temperature_search(
                     q_dist.detach(), desired_entropy, 

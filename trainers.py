@@ -155,7 +155,7 @@ class Second_Level_Trainer:
 
             while not episode_done:
                 if initialized:
-                    action, dist = agents[-1].sample_action(state, explore=(not greedy_sampling))
+                    action, dist = agents[-1].sample_action(state, explore=(train or (not greedy_sampling)))
                 else:
                     action = np.random.randint(agents[-1]._n_actions)
                     dist = np.ones(agents[-1]._n_actions) / agents[-1]._n_actions
