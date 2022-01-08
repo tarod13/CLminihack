@@ -2,6 +2,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
+from torch.nn.utils import clip_grad_norm_
 
 from actor_critic_nets import discrete_vision_actor_critic_Net
 from rnd import RND_Module
@@ -62,6 +63,18 @@ class Second_Level_Agent(nn.Module):
         pixel_np = state['pixel'].astype(np.float)/255.        
         pixel = np2torch(pixel_np)        
         return pixel
+
+    def train_rnd_module(self, pixels_np):
+        pixels_mean = self.rnd_module.obs_rms.mean
+        pixels_var = self.rnd_module.obs_rms.mean
+        pixels_norm = (pixels_np - pixels_mean) / ((pixels_var)**0.5 + 1e-10)
+        pixels = np2torch(pixels_norm.clip(-5, 5))
+        rnd_loss = self.rnd_module(pixels).mean()
+        self.rnd_module.predictor.optimizer.zero_grad()
+        rnd_loss.backward()
+        clip_grad_norm_(self.rnd_module.predictor.parameters(), 1.0)
+        self.rnd_module.predictor.optimizer.step()
+        return rnd_loss.item()
     
     def save(self, save_path, best=False):
         if best:

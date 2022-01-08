@@ -1,4 +1,4 @@
-import collections
+from collections import  deque
 import numpy as np
 from buffers import (
     ExperienceBuffer, ExperienceFirstLevel, 
@@ -125,11 +125,12 @@ class Second_Level_Trainer:
             max_episode_steps=2000, train_each=1, update_database=True, 
             render=False, store_video=False, wandb_project=False, 
             save_model=True, save_model_each=50, MODEL_PATH='', 
-            save_step_each=2, greedy_sampling=False, initialization=True,
-            init_buffer_size=500, n_step_td=2, eval_each=5):
+            save_step_each=2, greedy_sampling=False, n_step_td=2, eval_each=5, 
+            init_sac=True, init_rnd=True, init_steps_sac=500):
 
         best_return = -np.infty
 
+        # Start video recording
         if store_video:
             video_filename = (
                 video_folder
@@ -139,12 +140,22 @@ class Second_Level_Trainer:
             fourcc = cv2.VideoWriter_fourcc(*'avc1')#*'avc1'
             video = cv2.VideoWriter(video_filename, fourcc, 4, (1264, 336))
 
-        initialized = not (initialization and train)
+        # Set alias for RND module
+        rnd_module = agents[-1].rnd_module
+        
+        # Initialize database and statistics
+        init = init_sac or init_rnd
+        if init:
+            self.initialize(
+                env, agents, database, n_step_td,
+                max_episode_steps, init_steps_sac, init_sac, init_rnd)
+
         returns = []
         for episode in range(0, n_episodes):
-            state_buffer = collections.deque(maxlen=n_step_td)
-            action_buffer = collections.deque(maxlen=n_step_td)
-            reward_buffer = collections.deque(maxlen=n_step_td)
+            state_buffer = deque(maxlen=n_step_td)
+            action_buffer = deque(maxlen=n_step_td)
+            reward_buffer = deque(maxlen=n_step_td)
+            state_buffer_rnd = deque(maxlen=max_episode_steps)
 
             step_counter = 0
             episode_done = False
@@ -152,15 +163,14 @@ class Second_Level_Trainer:
             episode_return = 0.0
 
             state_buffer.append(state)
+            state_buffer_rnd.append(state['pixel'])
 
             while not episode_done:
-                if initialized:
-                    action, dist = agents[-1].sample_action(state, explore=(train or (not greedy_sampling)))
-                else:
-                    action = np.random.randint(agents[-1]._n_actions)
-                    dist = np.ones(agents[-1]._n_actions) / agents[-1]._n_actions
+                action, dist = agents[-1].sample_action(state, explore=(train or (not greedy_sampling)))
+                
                 if render:
                     env.render()
+                
                 next_state, reward, done, info = env.step(action)
 
                 action_buffer.append(action)
@@ -198,10 +208,12 @@ class Second_Level_Trainer:
                 episode_return += reward
                 state = next_state.copy()
                 state_buffer.append(state)
-
+                state_buffer_rnd.append(state['pixel'])
+                
                 step_counter += 1
 
-                should_train_in_this_step = train and ((step_counter % train_each) == 0) and initialized 
+                # Train agent
+                should_train_in_this_step = train and ((step_counter % train_each) == 0) 
                 if should_train_in_this_step:
                     metrics = self.optimizer.optimize(agents, database, n_step_td)
                     #agents.append(agent_last)                    
@@ -209,29 +221,52 @@ class Second_Level_Trainer:
                         metrics['step'] = step_counter
                         wandb.log(metrics)
 
+                # Finish episode
                 if step_counter >= max_episode_steps or done:
                     episode_done = True
-                
-                initialized = initialized or (database.__len__() > init_buffer_size)
-
             returns.append(episode_return)
+                
+            # Update RND observation statistics
+            state_batch = np.stack(state_buffer_rnd).astype(np.float)/255.
+            rnd_module.obs_rms.update(state_batch)
+            
+            # Train RND module
+            train_rnd = train and (rnd_module is not None)
+            if train_rnd:
+                rnd_loss = agents[-1].train_rnd_module(state_batch)
+            else:
+                rnd_loss = False
 
+            # Clean RND buffer
+            state_buffer_rnd = deque(maxlen=max_episode_steps)            
+
+            # Log return
             if wandb_project and train:
-                wandb.log({'episode': episode, 'return': episode_return})
+                wandb.log(
+                    {
+                        'episode': episode, 
+                        'return': episode_return, 
+                        'rnd_loss': rnd_loss
+                    }
+                )
 
+            # Save model
             if save_model and ((episode + 1) % save_model_each == 0):
                 agents[-1].save(MODEL_PATH + env.spec.id + '/')
-            
+                        
             if train and (episode_return > best_return):
                 best_return = episode_return
                 agents[-1].save(MODEL_PATH + env.spec.id + '/', best=True)
             
+            # Eval agent
             if train and ((episode+1) % eval_each == 0):
                 eval_returns = self.loop(env, agents, None, n_episodes=1, train=False, 
                     max_episode_steps=max_episode_steps, update_database=False,
                     render=False, store_video=True, wandb_project=wandb_project,
-                    save_model=False, greedy_sampling=greedy_sampling, initialization=False,
-                    n_step_td=1)
+                    save_model=False, greedy_sampling=greedy_sampling, n_step_td=1,
+                    init_sac=False, init_rnd=False
+                    )
+
                 wandb.log(
                     {
                         'episode_eval': episode//eval_each, 
@@ -241,17 +276,90 @@ class Second_Level_Trainer:
 
         return_array = np.array(returns)
 
+        # Finish video recording
         if store_video:
             video.release()
             wandb.log(
                 {'video': wandb.Video(video_filename, fps=4, format='mp4')}
             )
 
+        # Close env
         if render:
             env.close()
 
         return return_array    
 
+    def initialize(
+        self, env, agents, database, n_step_td, max_episode_steps, 
+        init_steps_sac, init_sac=True, init_rnd=True
+        ):
+
+        init_steps = init_steps_sac
+
+        if init_rnd:
+            rnd_module = agents[-1].rnd_module
+            init_steps_rnd = rnd_module.pre_obs_norm_step
+            init_steps = max(init_steps,  init_steps_rnd)
+
+        state_buffer = deque(maxlen=n_step_td)
+        action_buffer = deque(maxlen=n_step_td)
+        reward_buffer = deque(maxlen=n_step_td)
+        state_buffer_rnd = deque(maxlen=max_episode_steps)
+
+        step_counter = 0
+        initialized = False
+
+        while not initialized:
+
+            step_counter_episode = 0
+            episode_done = False
+            state = env.reset()
+            
+            state_buffer.append(state)
+            state_buffer_rnd.append(state['pixel'])
+
+            while not episode_done:
+                action = np.random.randint(agents[-1]._n_actions)
+                next_state, reward, done, _ = env.step(action)
+
+                if init_sac:
+                    action_buffer.append(action)
+                    reward_buffer.append(reward)
+
+                    gamma_n = gamma = self.optimizer.discount_factor
+                    for previous_step in range(0, len(reward_buffer)-1):
+                        reward_buffer[-2-previous_step] += gamma_n * reward
+                        gamma_n *= gamma
+
+                    buffer_ready = len(state_buffer) == n_step_td
+                    if buffer_ready:
+                        initial_state = state_buffer[0]
+                        initial_action = action_buffer[0]
+                        n_step_reward = reward_buffer[0]                    
+                        step = PixelExperienceSecondLevel(
+                            initial_state['pixel'], initial_action, n_step_reward,
+                            done, next_state['pixel']
+                        )
+                        database.append(step)
+
+                state = next_state.copy()
+                state_buffer.append(state)
+                state_buffer_rnd.append(state['pixel'])
+                
+                step_counter_episode += 1
+                step_counter += 1
+
+                # Finish episode
+                finished_episode = step_counter_episode >= max_episode_steps or done
+                initialized = step_counter >= init_steps
+                if finished_episode or initialized:
+                    episode_done = True
+                    if init_rnd:
+                        state_init_batch = np.stack(state_buffer_rnd).astype(
+                            np.float)/255.
+                        rnd_module.obs_rms.update(state_init_batch)
+                        state_buffer_rnd = deque(maxlen=max_episode_steps)
+            
 
 class Third_Level_Trainer:
     def __init__(self, optimizer_kwargs={}):
@@ -276,9 +384,9 @@ class Third_Level_Trainer:
         initialized = not (initialization and train)
         returns = []
         for episode in range(0, n_episodes):
-            state_buffer = collections.deque(maxlen=n_step_td)
-            action_buffer = collections.deque(maxlen=n_step_td)
-            reward_buffer = collections.deque(maxlen=n_step_td)
+            state_buffer = deque(maxlen=n_step_td)
+            action_buffer = deque(maxlen=n_step_td)
+            reward_buffer = deque(maxlen=n_step_td)
 
             trajectory_buffer = ExperienceBuffer(max_episode_steps, level=4)
             train_MC_episode = train and (MC_counter < train_n_MC)

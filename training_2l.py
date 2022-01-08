@@ -14,9 +14,9 @@ import os
 import collections
 
 DEFAULT_ENV_NAME = 'MiniHack-River-v0'
-DEFAULT_N_STEPS_IN_SECOND_LEVEL_EPISODE = 700
+DEFAULT_N_STEPS_IN_SECOND_LEVEL_EPISODE = 350
 DEFAULT_BUFFER_SIZE = 500000
-DEFAULT_N_EPISODES = 3000
+DEFAULT_N_EPISODES = 6000
 DEFAULT_ID = '2001-01-15_19-10-56'
 DEFAULT_CLIP_Q_ERROR = False
 DEFAULT_CLIP_VALUE_Q_ERROR = 5.0
@@ -34,8 +34,10 @@ DEFAULT_LR = 3e-4 # wrong value: 3e-5
 DEFAULT_LR_ACTOR = 3e-4 # wrong value: 3e-5
 DEFAULT_LR_ALPHA = 3e-4 # wrong value: 1e-6
 DEFAULT_ALPHA_V_WEIGHT = 0
-DEFAULT_INITIALIZATION = False
-DEFAULT_INITIAL_BUFFER_SIZE = 500
+DEFAULT_INITIALIZE_SAC = True
+DEFAULT_INITIALIZE_RND = True
+DEFAULT_INITIALIZATION_STEPS_SAC = 500
+DEFAULT_INITIALIZATION_STEPS_RND = 50
 DEFAULT_NOISY_ACTOR_CRITIC = False
 DEFAULT_SAVE_STEP_EACH = 1
 DEFAULT_TRAIN_EACH = 4
@@ -84,8 +86,9 @@ if __name__ == "__main__":
     parser.add_argument("--lr_actor", default=DEFAULT_LR_ACTOR, help="Learning rate for actor, default=" + str(DEFAULT_LR_ACTOR))
     parser.add_argument("--lr_alpha", default=DEFAULT_LR_ALPHA, help="Learning rate for temperature, default=" + str(DEFAULT_LR_ALPHA))
     parser.add_argument("--alpha_v_weight", default=DEFAULT_ALPHA_V_WEIGHT, help="Weight for entropy velocity in temperature loss, default=" + str(DEFAULT_ALPHA_V_WEIGHT))
-    parser.add_argument("--initialization", default=DEFAULT_INITIALIZATION, help="Initialize the replay buffer of the agent by acting randomly for a specified number of steps ")
-    parser.add_argument("--init_buffer_size", default=DEFAULT_INITIAL_BUFFER_SIZE, help="Minimum replay buffer size to start learning, default=" + str(DEFAULT_INITIAL_BUFFER_SIZE))
+    parser.add_argument("--init_sac", default=DEFAULT_INITIALIZE_SAC, help="Initialize the replay buffer of the agent by acting randomly for a specified number of steps ")
+    parser.add_argument("--init_rnd", default=DEFAULT_INITIALIZE_RND, help="Initialize the observations statistics in the RND module by acting randomly for a specified number of steps ")
+    parser.add_argument("--init_steps_sac", default=DEFAULT_INITIALIZATION_STEPS_SAC, help="Minimum observations in replay buffer to start learning, default=" + str(DEFAULT_INITIALIZATION_STEPS_SAC))
     parser.add_argument("--load_id", default=None, help="Model ID to load, default=None")
     parser.add_argument("--load_best", action="store_true", help="If flag is used the best model will be loaded (if ID is provided)")
     parser.add_argument("--eval_greedy", default=DEFAULT_EVAL_GREEDY, help="If true, then the evaluation policy is greedy")
@@ -118,17 +121,7 @@ if __name__ == "__main__":
     project_name = 'visualSAC_minihack'
     
     # Set hyperparameters
-    env_name = args.env_name
-    n_steps_in_second_level_episode = args.n_steps_in_second_level_episode
-    buffer_size = args.buffer_size
     n_episodes = 1 if args.eval else args.n_episodes
-    initialization = args.initialization
-    init_buffer_size = args.init_buffer_size
-    noisy = args.noisy_ac
-    save_step_each = args.save_step_each
-    train_each = args.train_each
-    n_step_td = args.n_step_td
-    n_heads = args.n_heads
     optimizer_kwargs = {
         'batch_size': args.batch_size, 
         'discount_factor': args.discount_factor,
@@ -169,9 +162,9 @@ if __name__ == "__main__":
 
     env = MinihackPixelWrapper(
         gym.make(
-            env_name,
+            args.env_name,
             observation_keys=("pixel",),
-            max_episode_steps=n_steps_in_second_level_episode
+            max_episode_steps=args.n_steps_in_second_level_episode
         ),
         use_grayscale=args.grayscale
     )
@@ -180,7 +173,7 @@ if __name__ == "__main__":
     optimizer_kwargs['n_actions'] = n_actions
 
     agent = create_second_level_agent(
-        n_actions=n_actions, noisy=noisy, n_heads=n_heads, 
+        n_actions=n_actions, noisy=args.noisy_ac, n_heads=args.n_heads, 
         init_log_alpha=args.init_log_alpha, 
         latent_dim=args.vision_latent_dim, parallel=args.parallel_q_nets,
         lr=args.lr, lr_alpha=args.lr_alpha, lr_actor=args.lr_actor,
@@ -189,23 +182,26 @@ if __name__ == "__main__":
     
     if args.load_id is not None:
         if args.load_best:
-            agent.load(MODEL_PATH + env_name + '/best_', args.load_id)
+            agent.load(MODEL_PATH + args.env_name + '/best_', args.load_id)
         else:
-            agent.load(MODEL_PATH + env_name + '/last_', args.load_id)
+            agent.load(MODEL_PATH + args.env_name + '/last_', args.load_id)
     agents = collections.deque(maxlen=args.n_agents)
     agents.append(agent)
     
-    os.makedirs(MODEL_PATH + env_name, exist_ok=True)
+    os.makedirs(MODEL_PATH + args.env_name, exist_ok=True)
 
-    database = ExperienceBuffer(buffer_size, level=2)
+    database = ExperienceBuffer(args.buffer_size, level=2)
 
     trainer = Trainer(optimizer_kwargs=optimizer_kwargs)
-    returns = trainer.loop(env, agents, database, n_episodes=n_episodes, render=args.render, 
-                            max_episode_steps=n_steps_in_second_level_episode, 
-                            store_video=store_video, wandb_project=wandb_project, 
-                            MODEL_PATH=MODEL_PATH, train=(not args.eval),
-                            initialization=initialization, init_buffer_size=init_buffer_size,
-                            save_step_each=save_step_each, train_each=train_each, 
-                            n_step_td=n_step_td, greedy_sampling=args.eval_greedy)
+    returns = trainer.loop(
+        env, agents, database, n_episodes=n_episodes, render=args.render, 
+        max_episode_steps=args.n_steps_in_second_level_episode, 
+        store_video=store_video, wandb_project=wandb_project, 
+        MODEL_PATH=MODEL_PATH, train=(not args.eval),
+        save_step_each=args.save_step_each, train_each=args.train_each, 
+        n_step_td=args.n_step_td, greedy_sampling=args.eval_greedy,
+        init_sac=args.init_sac, init_rnd=args.init_rnd, 
+        init_steps_sac=args.init_steps_sac
+    )
     G = returns.mean()    
     print("Mean episode return: {:.2f}".format(G)) 

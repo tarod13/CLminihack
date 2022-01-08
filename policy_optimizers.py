@@ -213,7 +213,6 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         HA_s_mean += (HA_s_mean_last - HA_s_mean)/n_agents
 
         # Calculate RND loss and novelty
-        rnd_loss = agent.rnd_module(pixels).mean()
         log_novelty, novelty_error, _ = agent.calc_novelty(
             next_pixels)
 
@@ -371,12 +370,6 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         actor_loss.backward()
         clip_grad_norm_(actor_critic.actor.parameters(), self.clip_value)
         actor_critic.actor.optimizer.step()
-
-        # Optimize RND predictor
-        agent.rnd_module.predictor.optimizer.zero_grad()
-        rnd_loss.backward()
-        clip_grad_norm_(agent.rnd_module.predictor.parameters(), self.clip_value)
-        agent.rnd_module.predictor.optimizer.step()
 
         if self.state_dependent_temperature:
             alpha_error = (HA_s_mean - desired_entropy)**2
