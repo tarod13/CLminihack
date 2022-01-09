@@ -154,9 +154,9 @@ class Second_Level_Trainer:
         for episode in range(0, n_episodes):
             state_buffer = deque(maxlen=n_step_td)
             action_buffer = deque(maxlen=n_step_td)
-            reward_buffer = deque(maxlen=n_step_td)
+            reward_buffer = deque(maxlen=n_step_td)            
             state_buffer_rnd = deque(maxlen=max_episode_steps)
-
+            
             step_counter = 0
             episode_done = False
             state = env.reset()
@@ -209,7 +209,7 @@ class Second_Level_Trainer:
                 state = next_state.copy()
                 state_buffer.append(state)
                 state_buffer_rnd.append(state['pixel'])
-                
+                                
                 step_counter += 1
 
                 # Train agent
@@ -226,16 +226,32 @@ class Second_Level_Trainer:
                     episode_done = True
             returns.append(episode_return)
                 
-            # Update RND observation statistics
-            state_batch = np.stack(state_buffer_rnd).astype(np.float)/255.
-            rnd_module.obs_rms.update(state_batch)
-            
             # Train RND module
             train_rnd = train and (rnd_module is not None)
             if train_rnd:
-                rnd_loss = agents[-1].train_rnd_module(state_batch)
+                # Update RND observation statistics
+                state_batch = np.stack(state_buffer_rnd).astype(np.float)/255.
+                rnd_module.obs_rms.update(state_batch)
+
+                # Update predictor parameters
+                rnd_loss, int_rewards = agents[-1].train_rnd_module(
+                    state_batch)
+                
+                 # Update RND reward statistics
+                int_pseudo_returns = [
+                    rnd_module.discounted_reward.update(reward.item())
+                    for reward in int_rewards]
+                int_pseudo_returns = np.stack(int_pseudo_returns)
+                rnd_module.reward_rms.update_from_moments(
+                    np.mean(int_pseudo_returns),
+                    np.std(int_pseudo_returns)**2,
+                    len(int_pseudo_returns)
+                )
+                int_reward_mean = rnd_module.reward_rms.mean
+                int_reward_std = rnd_module.reward_rms.var**0.5
             else:
                 rnd_loss = False
+                int_reward_mean = int_reward_std = 0.0
 
             # Clean RND buffer
             state_buffer_rnd = deque(maxlen=max_episode_steps)            
@@ -246,7 +262,9 @@ class Second_Level_Trainer:
                     {
                         'episode': episode, 
                         'return': episode_return, 
-                        'rnd_loss': rnd_loss
+                        'rnd_loss': rnd_loss,
+                        'int_reward_mean': int_reward_mean,
+                        'int_reward_std': int_reward_std,
                     }
                 )
 

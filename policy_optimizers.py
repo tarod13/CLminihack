@@ -128,7 +128,6 @@ class First_Level_SAC_PolicyOptimizer(Optimizer):
         return metrics   
 
 
-
 class Second_Level_SAC_PolicyOptimizer(Optimizer):
     def __init__(self, learn_alpha=True, batch_size=32, 
                 discount_factor=0.99, clip_value=1.0, 
@@ -178,7 +177,7 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
             return None
 
         # Sample batch
-        pixels, actions, rewards, \
+        pixels, actions, ext_rewards, \
             dones, next_pixels = \
             database.sample(self.batch_size)      
 
@@ -186,11 +185,11 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         q_target = 0.0
         log_softmax_target = 0.0
         HA_s_mean = 0.0
-        for i in range(0, n_agents-1):
+        for i in range(0, n_agents-1):   # TODO: fix for more than 1 agent
             q_target_i, log_softmax_target_i, HA_s_mean_i = \
                 self.calculate_targets(
                     agents[i], n_step_td, pixels, actions, 
-                    rewards, dones, next_pixels
+                    ext_rewards, dones, next_pixels
                 )
             q_target += (q_target_i - q_target)/(i+1)
             log_softmax_target += (
@@ -199,6 +198,11 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
             HA_s_mean += (HA_s_mean_i - HA_s_mean)/(i+1)
 
         agent = copy.deepcopy(agents[-1])
+
+        # Calculate RND loss and novelty
+        log_novelty, int_rewards = agent.calc_novelty(
+            next_pixels)
+        rewards = ext_rewards + 0.5*int_rewards
 
         # Alias for actor-critic module
         actor_critic = agent.second_level_architecture
@@ -211,10 +215,6 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
         HA_s = -(next_PA_s * next_log_PA_s).sum(1, keepdim=True)
         HA_s_mean_last = HA_s.detach().mean()
         HA_s_mean += (HA_s_mean_last - HA_s_mean)/n_agents
-
-        # Calculate RND loss and novelty
-        log_novelty, novelty_error, _ = agent.calc_novelty(
-            next_pixels)
 
         # Update mean entropy
         if self.H_mean is None:
@@ -409,8 +409,8 @@ class Second_Level_SAC_PolicyOptimizer(Optimizer):
                     'n_iter_temp_search': n_iter,
                     'log_novelty_mean': log_novelty.mean().item(),
                     'log_novelty_std': log_novelty.std().item(),
-                    'novelty_error_mean': novelty_error.mean().item(),
-                    'novelty_error_std': novelty_error.std().item(),
+                    'int_rewards_mean': int_rewards.mean().item(),
+                    'int_rewards_std': int_rewards.std().item(),
                     }
 
         return metrics

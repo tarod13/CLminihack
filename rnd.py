@@ -5,7 +5,7 @@ import torch
 from torch.optim import Adam
 from vision_nets import vision_Net
 from net_utils import *
-
+from utils import numpy2torch as np2torch
 
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
@@ -106,20 +106,32 @@ class RND_Module(nn.Module):
         
         updateNet(self.predictor_frozen, self.predictor, 1.0)
 
+    def normalize_obs(self, pixels_np):
+        pixels_mean = self.obs_rms.mean
+        pixels_var = self.obs_rms.mean
+        pixels_norm = (pixels_np - pixels_mean) / ((pixels_var)**0.5 + 1e-10)
+        pixels = np2torch(pixels_norm.clip(-5, 5)).to(device)
+        return pixels
+
     def forward(self, pixels):
-        target = self.target(pixels)
-        prediction = self.predictor(pixels)
+        pixels_normalized = self.normalize_obs(pixels)
+        target = self.target(pixels_normalized)
+        prediction = self.predictor(pixels_normalized)
         error = ((prediction - target.detach())**2).sum(1, keepdim=True)
         return error
 
     def calc_novelty(self, pixels):
         with torch.no_grad():
-            target = self.target(pixels)
-            prediction = self.predictor(pixels)
-            prediction_0 = self.predictor_frozen(pixels)
+            pixels_normalized = self.normalize_obs(pixels.detach().numpy())
+            target = self.target(pixels_normalized)
+            prediction = self.predictor(pixels_normalized)
+            prediction_0 = self.predictor_frozen(pixels_normalized)
 
             error = ((prediction - target)**2).sum(1, keepdim=True)
             error_0 = ((prediction_0 - target)**2).sum(1, keepdim=True)
 
-            log_novelty = torch.log(error + 1e-10) - torch.log(error_0 + 1e-10)
-            return log_novelty, error, error_0
+            log_novelty = (
+                torch.log(error + 1e-10) 
+                - torch.log(error_0 + 1e-10)
+            )
+            return log_novelty, error/(self.reward_rms.var**0.5)

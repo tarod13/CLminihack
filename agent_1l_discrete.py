@@ -21,7 +21,7 @@ def create_second_level_agent(
         init_log_alpha, parallel, lr, lr_alpha, lr_actor
     )
 
-    rnd_module = RND_Module(out_dim=rnd_out_dim)
+    rnd_module = RND_Module(out_dim=rnd_out_dim).to(device)
 
     second_level_agent = Second_Level_Agent(
         n_actions, second_level_architecture, rnd_module, noop_action
@@ -64,17 +64,14 @@ class Second_Level_Agent(nn.Module):
         pixel = np2torch(pixel_np)        
         return pixel
 
-    def train_rnd_module(self, pixels_np):
-        pixels_mean = self.rnd_module.obs_rms.mean
-        pixels_var = self.rnd_module.obs_rms.mean
-        pixels_norm = (pixels_np - pixels_mean) / ((pixels_var)**0.5 + 1e-10)
-        pixels = np2torch(pixels_norm.clip(-5, 5))
-        rnd_loss = self.rnd_module(pixels).mean()
+    def train_rnd_module(self, pixels):
+        int_rewards = self.rnd_module(pixels)
+        rnd_loss = int_rewards.mean()
         self.rnd_module.predictor.optimizer.zero_grad()
         rnd_loss.backward()
         clip_grad_norm_(self.rnd_module.predictor.parameters(), 1.0)
         self.rnd_module.predictor.optimizer.step()
-        return rnd_loss.item()
+        return rnd_loss.item(), int_rewards.detach()
     
     def save(self, save_path, best=False):
         if best:
