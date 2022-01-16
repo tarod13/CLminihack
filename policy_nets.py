@@ -54,9 +54,13 @@ class softmax_policy_Net(nn.Module):
 
 
 class vision_softmax_policy_Net(softmax_policy_Net):
-    def __init__(self, latent_dim, n_actions, noisy=True, lr=1e-4):
+    def __init__(self, latent_dim, n_actions, 
+        input_channels=1, height=42, width=158, 
+        noisy=True, lr=1e-4
+        ):
         super().__init__(latent_dim, n_actions, noisy)        
-        self.vision_net = vision_Net(latent_dim=latent_dim, noisy=noisy)
+        self.vision_net = vision_Net(
+            latent_dim, input_channels, height, width, noisy)
         self.optimizer = Adam(self.parameters(), lr=lr)
         
     def forward(self, pixels):    

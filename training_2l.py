@@ -3,48 +3,52 @@ import numpy as np
 import gym
 import minihack
 
-from agent_1l_discrete import create_second_level_agent
-from buffers import ExperienceBuffer
-from trainers import Second_Level_Trainer as Trainer
-from wrappers import MinihackPixelWrapper
+from agent_1l_discrete import create_second_level_agent as create_agent
+from episode_buffers import EpisodeExperienceBuffer as Buffer
+from multistep_trainers import MutiStep_Second_Level_Trainer as Trainer
+from wrappers import MinihackPixelWrapper as Wrapper
 
 import wandb
 import argparse
 import os
 import collections
 
-DEFAULT_ENV_NAME = 'MiniHack-River-v0'
+os.environ["WANDB_START_METHOD"] = "thread"
+
+DEFAULT_ENV_NAME = 'MiniHack-River-Narrow-v0'
 DEFAULT_N_STEPS_IN_SECOND_LEVEL_EPISODE = 350
-DEFAULT_BUFFER_SIZE = 500000
-DEFAULT_N_EPISODES = 6000
+DEFAULT_BUFFER_SIZE = 3000
+DEFAULT_N_EPISODES = 10000
 DEFAULT_ID = '2001-01-15_19-10-56'
 DEFAULT_CLIP_Q_ERROR = False
 DEFAULT_CLIP_VALUE_Q_ERROR = 5.0
 DEFAULT_CLIP_VALUE = 1.0
 DEFAULT_DISCOUNT_FACTOR = 0.999
+DEFAULT_DISCOUNT_FACTOR_INT = 0.99
 DEFAULT_BATCH_SIZE = 128
-DEFAULT_MIN_EPSILON = 0.1
+DEFAULT_MIN_EPSILON = 0.2
 DEFAULT_INIT_EPSILON = 1.0
-DEFAULT_DELTA_EPSILON = 1e-5
+DEFAULT_DELTA_EPSILON = 5e-6
 DEFAULT_ENTROPY_FACTOR = 0.1
 DEFAULT_ENTROPY_UPDATE_RATE = 0.005
 DEFAULT_WEIGHT_Q_LOSS = 0.5
-DEFAULT_INIT_LOG_ALPHA = 1.0
+DEFAULT_INIT_LOG_ALPHA = -6.9
+DEFAULT_LEARN_ALPHA = False
 DEFAULT_LR = 3e-4 # wrong value: 3e-5
 DEFAULT_LR_ACTOR = 3e-4 # wrong value: 3e-5
 DEFAULT_LR_ALPHA = 3e-4 # wrong value: 1e-6
 DEFAULT_ALPHA_V_WEIGHT = 0
 DEFAULT_INITIALIZE_SAC = True
 DEFAULT_INITIALIZE_RND = True
-DEFAULT_INITIALIZATION_STEPS_SAC = 500
-DEFAULT_INITIALIZATION_STEPS_RND = 50
+DEFAULT_INITIALIZATION_STEPS_SAC = 700
+DEFAULT_INITIALIZATION_STEPS_RND = 700
 DEFAULT_NOISY_ACTOR_CRITIC = False
 DEFAULT_SAVE_STEP_EACH = 1
-DEFAULT_TRAIN_EACH = 4
+DEFAULT_TRAIN_EACH = 64
 DEFAULT_N_STEP_TD = 1
 DEFAULT_PARALLEL_Q_NETS = True
 DEFAULT_N_HEADS = 2
-DEFAULT_VISION_LATENT_DIM = 128
+DEFAULT_VISION_LATENT_DIM = 32
 DEFAULT_N_AGENTS = 1
 DEFAULT_NORMALIZE_Q_ERROR = True
 DEFAULT_RESTRAIN_POLICY_UPDATE = False
@@ -55,11 +59,13 @@ DEFAULT_TARGET_UPDATE_RATE = 1e-3
 DEFAULT_STATE_DEPENDENT_TEMPERATURE = False
 DEFAULT_ACTOR_LOSS = 'jeffreys'
 DEFAULT_C_MINUS_TEMP_SEARCH = 1e-6
-DEFAULT_RND_OUT_DIM = 1024
+DEFAULT_RND_OUT_DIM = 512
 DEFAULT_LOG_NOVELTY_MIN = -10
 DEFAULT_LOG_NOVELTY_MAX = -6
 DEFAULT_EVAL_GREEDY = True
-DEFAULT_GRAYSCALE = True
+DEFAULT_GRAYSCALE = False
+DEFAULT_USE_INT_HEADS = True
+DEFAULT_WRAPPER_SCALE = 0.25
 
 if __name__ == "__main__":    
     parser = argparse.ArgumentParser()
@@ -72,6 +78,7 @@ if __name__ == "__main__":
     parser.add_argument("--buffer_size", default=DEFAULT_BUFFER_SIZE, help="Size of replay buffer, default=" + str(DEFAULT_BUFFER_SIZE))
     parser.add_argument("--n_episodes", default=DEFAULT_N_EPISODES, type=int, help="Number of episodes, default=" + str(DEFAULT_N_EPISODES))
     parser.add_argument("--discount_factor", default=DEFAULT_DISCOUNT_FACTOR, help="Discount factor (0,1), default=" + str(DEFAULT_DISCOUNT_FACTOR))
+    parser.add_argument("--discount_factor_int", default=DEFAULT_DISCOUNT_FACTOR_INT, help="Discount factor for inner rewards (0,1), default=" + str(DEFAULT_DISCOUNT_FACTOR_INT))
     parser.add_argument("--batch_size", default=DEFAULT_BATCH_SIZE, help="Batch size, default=" + str(DEFAULT_BATCH_SIZE))
     parser.add_argument("--clip_q_error", default=DEFAULT_CLIP_Q_ERROR, help="Clip q error wrt targets, default=" + str(DEFAULT_CLIP_Q_ERROR))
     parser.add_argument("--clip_value_q_error", default=DEFAULT_CLIP_VALUE_Q_ERROR, help="Clip value when clipping q error wrt targets, default=" + str(DEFAULT_CLIP_VALUE_Q_ERROR))
@@ -82,6 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--entropy_update_rate", default=DEFAULT_ENTROPY_UPDATE_RATE, help="Mean entropy update rate, default=" + str(DEFAULT_ENTROPY_UPDATE_RATE))
     parser.add_argument("--weight_q_loss", default=DEFAULT_WEIGHT_Q_LOSS, help="Weight of critics' loss, default=" + str(DEFAULT_WEIGHT_Q_LOSS))
     parser.add_argument("--init_log_alpha", default=DEFAULT_INIT_LOG_ALPHA, help="Initial temperature parameter, default=" + str(DEFAULT_INIT_LOG_ALPHA))
+    parser.add_argument("--learn_alpha", default=DEFAULT_LEARN_ALPHA, help="Wether to learn the temperature parameter, default=" + str(DEFAULT_LEARN_ALPHA))
     parser.add_argument("--lr", default=DEFAULT_LR, help="Learning rate, default=" + str(DEFAULT_LR))
     parser.add_argument("--lr_actor", default=DEFAULT_LR_ACTOR, help="Learning rate for actor, default=" + str(DEFAULT_LR_ACTOR))
     parser.add_argument("--lr_alpha", default=DEFAULT_LR_ALPHA, help="Learning rate for temperature, default=" + str(DEFAULT_LR_ALPHA))
@@ -103,7 +111,8 @@ if __name__ == "__main__":
     parser.add_argument("--clip_value", default=DEFAULT_CLIP_VALUE, help="Clip value for optimizer")
     parser.add_argument("--n_agents", default=DEFAULT_N_AGENTS, type=int, help="Number of agents")
     parser.add_argument("--state_dependent_temp", default=DEFAULT_STATE_DEPENDENT_TEMPERATURE, help="Wether the entropy temperature should be state-dependent or not")
-    parser.add_argument("--use_H_mean", default=DEFAULT_USE_H_MEAN, help="Use or not H mean in SAC's critic loss")
+    parser.add_argument("--use_H_mean", default=DEFAULT_USE_H_MEAN, help="Wether to use H mean in SAC's critic loss")
+    parser.add_argument("--use_int_heads", default=DEFAULT_USE_INT_HEADS, help="Wether to use q-value heads for intrinsic RND return")
     parser.add_argument("--use_entropy", default=DEFAULT_USE_ENTROPY, help="Use SAC with or without entropy")
     parser.add_argument("--normalize_q_dist", default=DEFAULT_NORMALIZE_Q_DIST, help="Normalize q target distribution")
     parser.add_argument("--target_update_rate", default=DEFAULT_TARGET_UPDATE_RATE, help="Update rate for target q networks")
@@ -113,6 +122,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_novelty_min", default=DEFAULT_LOG_NOVELTY_MIN, help="Lower bound for log novelty when converting to desired entropy")
     parser.add_argument("--log_novelty_max", default=DEFAULT_LOG_NOVELTY_MAX, help="Upper bound for log novelty when converting to desired entropy")
     parser.add_argument("--grayscale", default=DEFAULT_GRAYSCALE, help="Use grayscale for observations")
+    parser.add_argument("--wrapper_scale", default=DEFAULT_WRAPPER_SCALE, help="Fraction of the original observations in use (0,1]")
     parser.add_argument("--vision_latent_dim", default=DEFAULT_VISION_LATENT_DIM, help="Dimensionality of feature vector added to inner state, default=" + 
         str(DEFAULT_VISION_LATENT_DIM))
     args = parser.parse_args()
@@ -123,8 +133,10 @@ if __name__ == "__main__":
     # Set hyperparameters
     n_episodes = 1 if args.eval else args.n_episodes
     optimizer_kwargs = {
+        'learn_alpha': args.learn_alpha,
         'batch_size': args.batch_size, 
         'discount_factor': args.discount_factor,
+        'discount_factor_int': args.discount_factor_int,
         'init_epsilon': args.init_epsilon,
         'min_epsilon': args.min_epsilon,
         'delta_epsilon': args.delta_epsilon,
@@ -146,6 +158,7 @@ if __name__ == "__main__":
         'c_minus_temp_search': args.c_minus_temp_search,
         'log_novelty_min': args.log_novelty_min,
         'log_novelty_max': args.log_novelty_max,
+        'int_heads': args.use_int_heads
     }
 
     store_video = args.eval
@@ -160,24 +173,28 @@ if __name__ == "__main__":
         # wandb.config.healthy_reward = DEFAULT_HEALTHY_REWARD 
 
 
-    env = MinihackPixelWrapper(
+    env = Wrapper(
         gym.make(
             args.env_name,
             observation_keys=("pixel",),
             max_episode_steps=args.n_steps_in_second_level_episode
         ),
-        use_grayscale=args.grayscale
+        use_grayscale=args.grayscale,
+        scale=args.wrapper_scale
     )
     
     n_actions = env.action_space.n
     optimizer_kwargs['n_actions'] = n_actions
 
-    agent = create_second_level_agent(
+    agent = create_agent(
         n_actions=n_actions, noisy=args.noisy_ac, n_heads=args.n_heads, 
         init_log_alpha=args.init_log_alpha, 
         latent_dim=args.vision_latent_dim, parallel=args.parallel_q_nets,
         lr=args.lr, lr_alpha=args.lr_alpha, lr_actor=args.lr_actor,
-        rnd_out_dim=args.rnd_out_dim
+        rnd_out_dim=args.rnd_out_dim, int_heads=args.use_int_heads,
+        input_channels=(1 if args.grayscale else 3),
+        height=int(args.wrapper_scale*336),
+        width=int(args.wrapper_scale*1264)
         )
     
     if args.load_id is not None:
@@ -190,7 +207,7 @@ if __name__ == "__main__":
     
     os.makedirs(MODEL_PATH + args.env_name, exist_ok=True)
 
-    database = ExperienceBuffer(args.buffer_size, level=2)
+    database = Buffer(args.buffer_size)
 
     trainer = Trainer(optimizer_kwargs=optimizer_kwargs)
     returns = trainer.loop(

@@ -373,11 +373,24 @@ class Second_Level_Trainer:
                 if finished_episode or initialized:
                     episode_done = True
                     if init_rnd:
+                        # Update RND observation statistics
                         state_init_batch = np.stack(state_buffer_rnd).astype(
                             np.float)/255.
                         rnd_module.obs_rms.update(state_init_batch)
                         state_buffer_rnd = deque(maxlen=max_episode_steps)
-            
+
+                        # Update RND return statistics
+                        int_rewards = agents[-1].rnd_module(state_init_batch)
+                        int_pseudo_returns = [
+                            rnd_module.discounted_reward.update(reward.item())
+                            for reward in int_rewards]
+                        int_pseudo_returns = np.stack(int_pseudo_returns)
+                        rnd_module.reward_rms.update_from_moments(
+                            np.mean(int_pseudo_returns),
+                            np.std(int_pseudo_returns)**2,
+                            len(int_pseudo_returns)
+                        )
+
 
 class Third_Level_Trainer:
     def __init__(self, optimizer_kwargs={}):

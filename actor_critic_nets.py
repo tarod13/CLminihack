@@ -15,7 +15,6 @@ use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-
 class actor_critic_Net(nn.Module):
     def __init__(self, s_dim, a_dim, noisy, lr=3e-4, lr_alpha=3e-4):
         super().__init__()   
@@ -64,25 +63,41 @@ class actor_critic_Net(nn.Module):
 
 
 class discrete_vision_actor_critic_Net(nn.Module):
-    def __init__(self, n_actions, latent_dim, n_heads=8, init_log_alpha=0.0, 
-                    parallel=True, lr=1e-4, lr_alpha=1e-4, lr_actor=1e-4):
+    def __init__(
+        self, n_actions, latent_dim, n_heads=8, init_log_alpha=0.0, 
+        input_channels=1, height=42, width=158,
+        parallel=True, lr=1e-4, lr_alpha=1e-4, lr_actor=1e-4, int_heads=False
+        ):
         super().__init__()   
 
         self.n_actions = n_actions     
         self._parallel = parallel    
         
-        self.q = vision_multihead_dueling_q_Net(latent_dim, n_actions, n_heads, lr)        
-        self.q_target = vision_multihead_dueling_q_Net(latent_dim, n_actions, n_heads, lr)
+        self.q = vision_multihead_dueling_q_Net(
+            latent_dim, n_actions, n_heads, input_channels, 
+            height, width, lr, int_heads
+        )        
+        self.q_target = vision_multihead_dueling_q_Net(
+            latent_dim, n_actions, n_heads, input_channels, 
+            height, width, lr, int_heads
+        )
         self.update(rate=1.0)
         
-        self.actor = vision_softmax_policy_Net(latent_dim, n_actions, noisy=False, lr=lr_alpha) 
+        self.actor = vision_softmax_policy_Net(
+            latent_dim, n_actions, input_channels, 
+            height, width, noisy=False, lr=lr_alpha
+        ) 
 
         self.log_alpha = Parameter(torch.Tensor(1))
         nn.init.constant_(self.log_alpha, init_log_alpha)
         self.alpha_optimizer = Adam([self.log_alpha], lr=lr_alpha)
     
-    def forward(self):
-        pass
+    def forward(self, pixel):
+        q = self.q(pixel)
+        q_target = self.q_target(pixel)
+        pi, log_pi = self.actor(pixel)
+        log_alpha = self.log_alpha.view(-1,1)
+        return q, q_target, pi, log_pi, log_alpha
 
     def evaluate_critic(self, pixel, next_pixel):
         q = self.q(pixel)
@@ -92,7 +107,8 @@ class discrete_vision_actor_critic_Net(nn.Module):
         return q, next_q, next_pi, next_log_pi, log_alpha
     
     def evaluate_actor(self, pixel):
-        q = self.q_target(pixel)            
+        with torch.no_grad():
+            q = self.q(pixel)            
         pi, log_pi = self.actor(pixel)
         return q, pi, log_pi
     

@@ -20,9 +20,10 @@ class AntPixelWrapper(gym.ObservationWrapper):
 
 
 class MinihackPixelWrapper(gym.ObservationWrapper):
-    def __init__(self, env: gym.Env, use_grayscale: bool = False) -> None:
+    def __init__(self, env: gym.Env, use_grayscale: bool = False, scale=0.125) -> None:
         super().__init__(env)
         self.use_grayscale = use_grayscale
+        self.scale = scale
 
     def observation(self, obs):
         return self.transforms(obs)
@@ -32,9 +33,8 @@ class MinihackPixelWrapper(gym.ObservationWrapper):
         pixel = obs['pixel']
         state['original'] = pixel
         
-        scale = 1/8       
-        width = int(pixel.shape[1] * scale)
-        height = int(pixel.shape[0] * scale)
+        width = int(pixel.shape[1] * self.scale)
+        height = int(pixel.shape[0] * self.scale)
         dims = (width, height)
 
         if self.use_grayscale:

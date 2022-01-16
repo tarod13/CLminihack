@@ -19,8 +19,8 @@ class RunningMeanStd(object):
         self.count = epsilon
 
     def update(self, x):
-        batch_mean = np.mean(x, axis=0)
-        batch_var = np.var(x, axis=0)
+        batch_mean = np.mean(x, axis=0, keepdims=True)
+        batch_var = np.var(x, axis=0, keepdims=True)
         batch_count = x.shape[0]
         self.update_from_moments(batch_mean, batch_var, batch_count)
 
@@ -122,7 +122,8 @@ class RND_Module(nn.Module):
 
     def calc_novelty(self, pixels):
         with torch.no_grad():
-            pixels_normalized = self.normalize_obs(pixels.detach().numpy())
+            pixels_normalized = self.normalize_obs(
+                pixels.detach().cpu().numpy())
             target = self.target(pixels_normalized)
             prediction = self.predictor(pixels_normalized)
             prediction_0 = self.predictor_frozen(pixels_normalized)

@@ -75,17 +75,32 @@ class multihead_dueling_q_Net(nn.Module):
 
 
 class vision_multihead_dueling_q_Net(multihead_dueling_q_Net):
-    def __init__(self, latent_dim, n_actions, n_heads, lr=1e-4):
-        super().__init__(latent_dim, n_actions, n_heads)
-        self.vision_nets = nn.ModuleList([vision_Net(latent_dim=latent_dim, 
-            noisy=False) for i in range(0, n_heads)])
+    def __init__(
+        self, latent_dim, n_actions, n_heads, 
+        input_channels=1, height=42, width=158,
+        lr=1e-4, int_heads=False
+        ):
+        super().__init__(
+            latent_dim, n_actions,  
+            n_heads * (2 if int_heads else 1)
+        )
         self._n_heads = n_heads
+        self._int_heads = int_heads
+        self._total_n_heads = n_heads * (2 if int_heads else 1) 
+
+        self.vision_nets = nn.ModuleList([
+            vision_Net(
+                latent_dim, input_channels, height, width,
+                noisy=False, 
+            ) for i in range(0, self._total_n_heads)
+            ]
+        )
         
         self.optimizer = Adam(self.parameters(), lr=lr)
         
     def forward(self, pixels):    
         state = []
-        for head in range(0, self._n_heads):
+        for head in range(0, self._total_n_heads):
             head_features = self.vision_nets[head](pixels)
             state.append(head_features)
         state = torch.stack(state, dim=1)
@@ -93,5 +108,8 @@ class vision_multihead_dueling_q_Net(multihead_dueling_q_Net):
         x = F.relu(self.l2(x))
         V = self.lV(x)        
         A = self.lA(x)
-        Q = V + A - A.mean(2, keepdim=True) 
+        Q = V + A - A.mean(2, keepdim=True)
+        Q = Q.reshape(
+            pixels.shape[0],-1,self._n_heads,Q.shape[-1]
+        )
         return Q

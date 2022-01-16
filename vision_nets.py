@@ -70,7 +70,7 @@ class vision_Net(nn.Module):
         
     def forward(self, x):
         conv_feat = self.conv(x)
-        conv_feat = conv_feat.view(x.shape[0], -1) # Squeeze dimensions
+        conv_feat = conv_feat.reshape(x.shape[0], -1) # Squeeze dimensions
         x = self.fc1(conv_feat)
         feat = self.fc2(x)
         return feat

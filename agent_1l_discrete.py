@@ -12,16 +12,24 @@ from utils import time_stamp
 
 
 def create_second_level_agent(
-    n_actions=8, latent_dim=256, n_heads=8, init_log_alpha=0.0, 
-    noop_action=False, device='cuda', noisy=True, parallel=True, 
-    lr=1e-4, lr_alpha=1e-4, lr_actor=1e-4, rnd_out_dim=128):
+    n_actions=8, latent_dim=256, n_heads=8, 
+    init_log_alpha=0.0, noop_action=False, 
+    device='cuda', noisy=True, parallel=True, 
+    lr=1e-4, lr_alpha=1e-4, lr_actor=1e-4, 
+    rnd_out_dim=128, int_heads=False,
+    input_channels=1, height=21, width=79
+    ):
     
     second_level_architecture = discrete_vision_actor_critic_Net(
         n_actions+int(noop_action), latent_dim, n_heads, 
-        init_log_alpha, parallel, lr, lr_alpha, lr_actor
+        init_log_alpha, input_channels, height, width,
+        parallel, lr, lr_alpha, lr_actor, int_heads
     )
 
-    rnd_module = RND_Module(out_dim=rnd_out_dim).to(device)
+    rnd_module = RND_Module(
+        input_shape=(1,input_channels,height,width),
+        out_dim=rnd_out_dim
+    ).to(device)
 
     second_level_agent = Second_Level_Agent(
         n_actions, second_level_architecture, rnd_module, noop_action
